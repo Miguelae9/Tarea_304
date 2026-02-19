@@ -1,0 +1,70 @@
+FLUJO ACTUAL - Sistema de Gestión de Ficheros Remoto (TCP) + Upload/Download + Log
+
+1) ARRANQUE SERVIDOR (MainFileServerApp)
+- Lee puerto desde server.properties (puerto). Si falla -> 2121.
+- Calcula baseDir = directorio actual del proceso (Paths.get(".")...).
+- Crea 1 CommandRegistry (mapa comando -> clase).
+- Abre ServerSocket(port).
+- Bucle infinito:
+  - accept() -> Socket cliente
+  - new Thread(new ServerWorker(cliente, baseDir, registry)).start()
+
+2) WORKER POR CLIENTE (ServerWorker)
+- Crea baseDir si no existe (Files.createDirectories).
+- Crea CommandContext:
+  - socket
+  - InputStream / OutputStream del socket
+  - DataInputStream / DataOutputStream (para long/binario)
+  - clientIp
+  - baseDir
+- Log: CONNECT
+- Bucle:
+  - Lee 1 línea de comando con ProtocolIO.readLine(InputStream)
+    - Si null -> desconexión inesperada -> log y salir
+  - Trim, si vacía -> continue
+  - Parse:
+    - cmd = palabra hasta primer espacio
+    - params = resto (puede ser vacío)
+  - Log: RECV cmd params
+  - Busca ICommand en registry
+    - Si no existe: responde "KO\n" y log RESP KO (unknown)
+    - Si existe: command.execute(ctx, params)
+      - Si devuelve true: log DISCONNECT quit y salir
+- Al salir: cierra socket
+
+3) PROTOCOLO DE COMANDOS (texto por líneas)
+- Cliente envía: "<cmd> <params>\n"
+- Servidor responde siempre primero con:
+  - "OK\n" o "KO\n"
+- Comandos solo texto:
+  - list: OK + varias líneas + línea vacía final
+  - show: OK + N + N líneas
+  - delete: OK o KO
+  - quit: OK y cierra sesión
+
+4) PROTOCOLO BINARIO (solo tras OK)
+- upload <fichero>:
+  Cliente -> "upload nombre\n"
+  Servidor -> "OK\n" o "KO\n"
+  Si OK:
+    Cliente -> long size (8 bytes) + bytes del fichero (exactamente size)
+    Servidor -> lee long + copia size bytes a disco
+
+- download <fichero>:
+  Cliente -> "download ruta\n"
+  Servidor -> "OK\n" o "KO\n"
+  Si OK:
+    Servidor -> long size + bytes (exactamente size)
+    Cliente -> lee long + copia size bytes a disco
+
+5) POR QUÉ NO SE USA BufferedReader/Writer EN EL SOCKET
+- BufferedReader puede leer de más y dejar bytes “metidos en su buffer”.
+- Eso rompe el cambio de modo texto -> binario.
+- Por eso usamos ProtocolIO.readLine(InputStream) (lee byte a byte hasta '\n').
+
+6) LOG (ServerLogger -> server.log)
+- Cada evento se escribe en una línea:
+  [YYYY-MM-DD HH:mm:ss] [IP] [EVENTO]
+- Está sincronizado para que múltiples hilos no mezclen líneas.
+- Eventos típicos:
+  CONNECT, RECV ..., RESP ..., DISCONNECT quit/unexpected/error

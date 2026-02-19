@@ -1,0 +1,3 @@
+Manifest-Version: 1.0
+Main-Class: psp.ud03.tarea34.client.MainFileClientApp
+
